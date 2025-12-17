@@ -17,13 +17,13 @@ brew install poppler tesseract tesseract-lang  # macOS
 
 ```bash
 # Весь PDF
-python -m services.pdf_preprocessor "файл.pdf"
+python3 -m scripts.run_pdf_preprocess "файл.pdf"
 
 # Первые 2 страницы
-python -m services.pdf_preprocessor "файл.pdf" --max-pages 2
+python3 -m scripts.run_pdf_preprocess "файл.pdf" --max-pages 2
 
 # С удалением артефактов
-python -m services.pdf_preprocessor "файл.pdf" --cleanup
+python3 -m scripts.run_pdf_preprocess "файл.pdf" --cleanup
 ```
 
 **Артефакты:** `/var/folders/.../fsk_pdf_preprocess_xxxxx/` с подпапками `rendered/`, `preprocessed/`
@@ -34,10 +34,10 @@ python -m services.pdf_preprocessor "файл.pdf" --cleanup
 
 ```bash
 # Весь PDF с сохранением в artifacts/ocr/
-python -m scripts.run_pdf_ocr "файл.pdf" --out-dir "artifacts/ocr"
+python3 -m scripts.run_pdf_ocr "файл.pdf" --out-dir "artifacts/ocr"
 
 # Первые 2 страницы с выводом текста в консоль
-python -m scripts.run_pdf_ocr "файл.pdf" --max-pages 2 --print-text
+python3 -m scripts.run_pdf_ocr "файл.pdf" --max-pages 2 --print-text
 ```
 
 **Артефакты:** JSON (структурированный результат), TXT (полный текст документа)
