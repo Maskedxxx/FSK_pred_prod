@@ -1,7 +1,7 @@
 """Ручной запуск предпроцессинга PDF (PDF -> изображения страниц).
 
 Пример:
-  python3 -m FSK_pred_prod.scripts.run_pdf_preprocess "data/input/285 ... .pdf" --max-pages 2
+  python3 -m scripts.run_pdf_preprocess "....pdf" --max-pages 2
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from services.pdf_preprocessor import preprocess_pdf_to_images
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FSK_pred_prod: PDF предпроцессинг (рендер + предобработка).")
+    parser = argparse.ArgumentParser(description="PDF предпроцессинг (рендер + предобработка).")
     parser.add_argument("pdf", help="Путь к PDF файлу")
     parser.add_argument("--max-pages", type=int, default=0, help="0 = без лимита (обработать все страницы)")
     parser.add_argument(
