@@ -1,0 +1,46 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging / builds
+build/
+dist/
+*.egg-info/
+
+# Local env/config/secrets
+.env
+.env.*
+*.local
+
+# Test / type-check / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# IDEs / editors
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Tooling (local-only)
+.claude/
+CLAUDE.md
+data/
