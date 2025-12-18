@@ -9,6 +9,25 @@ pip install -r requirements.txt
 brew install poppler tesseract tesseract-lang  # macOS
 ```
 
+## Быстрый старт (полный пайплайн)
+
+Запуск полного пайплайна из ссылки Google Drive:
+
+```bash
+python3 -m scripts.run_pipeline "https://drive.google.com/file/d/xxx/view"
+```
+
+Пайплайн выполняет 7 шагов:
+1. **Download** — скачивание PDF из Google Drive
+2. **OCR** — распознавание текста (Tesseract)
+3. **Filter** — поиск релевантных страниц с дефектами (FSM)
+4. **VLM** — очистка страниц через Vision LLM
+5. **Extract** — извлечение дефектов через LLM
+6. **Dedup** — пометка дубликатов
+7. **Excel** — генерация отчёта
+
+Все артефакты сохраняются в `result/YYYYMMDD_HHMMSS/`.
+
 ## Сервисы
 
 ### 1. Предпроцессинг PDF
@@ -179,6 +198,27 @@ from services.excel_generator import generate_excel_report
 
 excel_path = generate_excel_report(dedup_result)  # из Defect Deduplicator
 print(f"Excel сохранён: {excel_path}")
+```
+
+### Полный пайплайн
+
+```python
+from services.pipeline import run_pipeline, DefectAnalysisPipeline
+
+# Вариант 1: простой запуск
+result = await run_pipeline("https://drive.google.com/file/d/xxx/view")
+print(f"Excel: {result.excel_path}")
+print(f"Время: {result.total_duration:.2f}с")
+
+# Вариант 2: пошаговый контроль
+pipeline = DefectAnalysisPipeline(source_url, pipeline_dir=Path("my_results"))
+await pipeline.download_document()
+await pipeline.run_ocr()
+await pipeline.run_page_filter()
+await pipeline.run_vlm_cleaning()
+await pipeline.run_defect_extraction()
+await pipeline.run_deduplication()
+await pipeline.run_excel_generation()
 ```
 
 ## Настройки

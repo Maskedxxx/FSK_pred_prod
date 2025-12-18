@@ -3,5 +3,6 @@ opencv-python
 pydantic
 requests
 httpx
+aiohttp
 Pillow
 openpyxl
