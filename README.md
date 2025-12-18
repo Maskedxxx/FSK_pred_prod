@@ -221,9 +221,51 @@ await pipeline.run_deduplication()
 await pipeline.run_excel_generation()
 ```
 
+## Telegram бот
+
+Бот предоставляет интерфейс для запуска пайплайна через Telegram.
+
+### Настройка
+
+1. Получите токен бота у [@BotFather](https://t.me/BotFather)
+2. Создайте `.env` файл в корне проекта:
+
+```bash
+BOT_TOKEN=your_telegram_bot_token_here
+```
+
+### Запуск бота
+
+```bash
+python -m bot.main
+```
+
+### Использование
+
+1. `/start` — приветствие и показ клавиатуры
+2. Нажмите **«Загрузить документ»** — получите инструкцию
+3. Отправьте ссылку Google Drive — запустится пайплайн
+
+Бот отправляет статусные сообщения после каждого шага и в конце присылает Excel файл с результатами.
+
+### Структура бота
+
+```
+bot/
+├── main.py           # Точка входа, регистрация хендлеров
+├── config.py         # Конфигурация (токен, сообщения)
+├── handlers/
+│   ├── start.py      # Команда /start
+│   ├── documents.py  # Обработка ссылок и пайплайн
+│   └── common.py     # Fallback обработчик
+└── keyboards/
+    └── main.py       # Reply и Inline клавиатуры
+```
+
 ## Настройки
 
 Все параметры в `config.py`:
+
 - Предпроцессинг: `PDF_RENDER_DPI`, `PDF_PREPROCESS_NORMALIZE`
 - OCR: `TESSERACT_LANG`, `TESSERACT_OEM`, `TESSERACT_PSM`, `OCR_PAGE_CONCURRENCY`
 - Flowise: `FLOWISE_API_URL_*`, `FLOWISE_BATCH_SIZE`, `FLOWISE_TIMEOUT_SECONDS`
