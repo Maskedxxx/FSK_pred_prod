@@ -1,12 +1,12 @@
 # FSK_pred_prod
 
-Пайплайн обработки PDF: предпроцессинг страниц и фильтрация релевантных страниц через LLM.
+Пайплайн обработки PDF: предпроцессинг страниц, OCR через tesseract, фильтрация релевантных страниц через LLM.
 
 ## Установка
 
 ```bash
 pip install -r requirements.txt
-brew install poppler  # macOS
+brew install poppler tesseract tesseract-lang  # macOS
 ```
 
 ## Сервисы
@@ -23,7 +23,18 @@ python3 -m scripts.run_pdf_preprocess "файл.pdf" --cleanup
 
 **Артефакты:** `/var/folders/.../fsk_pdf_preprocess_xxxxx/` с подпапками `rendered/`, `preprocessed/`
 
-### 2. Flowise Page Filter (FSM)
+### 2. OCR (Tesseract)
+
+Выполняет OCR с использованием предпроцессинга. Сохраняет JSON и TXT артефакты.
+
+```bash
+python3 -m scripts.run_pdf_ocr "файл.pdf" --out-dir "artifacts/ocr"
+python3 -m scripts.run_pdf_ocr "файл.pdf" --max-pages 2 --print-text
+```
+
+**Артефакты:** JSON (структурированный результат), TXT (полный текст документа)
+
+### 3. Flowise Page Filter (FSM)
 
 Фильтрует релевантные страницы через Flowise LLM. FSM с двумя фазами: поиск начала и конца списка дефектов.
 
@@ -49,6 +60,16 @@ for page in result.pages:
 result.cleanup()
 ```
 
+### OCR
+
+```python
+from services.ocr_service import process_pdf_ocr, save_ocr_result
+
+result = await process_pdf_ocr("document.pdf")
+json_path, txt_path = await save_ocr_result(result, result_dir="artifacts")
+print(result.document.get_all_text())
+```
+
 ### Flowise Page Filter
 
 ```python
@@ -64,4 +85,5 @@ save_filter_result(result, result_dir="artifacts")
 
 Все параметры в `config.py`:
 - Предпроцессинг: `PDF_RENDER_DPI`, `PDF_PREPROCESS_NORMALIZE`
+- OCR: `TESSERACT_LANG`, `TESSERACT_OEM`, `TESSERACT_PSM`, `OCR_PAGE_CONCURRENCY`
 - Flowise: `FLOWISE_API_URL_*`, `FLOWISE_BATCH_SIZE`, `FLOWISE_TIMEOUT_SECONDS`
