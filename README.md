@@ -73,6 +73,19 @@ python3 -m scripts.run_defect_extractor "vlm_result.json" --out-dir "artifacts/d
 **Вход:** VLM JSON результат (vlm_result_*.json)
 **Артефакты:** JSON со списком дефектов (source_text, room, location, defect, work_type)
 
+### 6. Defect Deduplicator
+
+Помечает дубликаты дефектов по ключам (room, location, defect). Не удаляет дубли, а добавляет колонку с номерами строк-дубликатов для Excel.
+
+```bash
+python3 -m scripts.run_defect_deduplicator "defects_result.json"
+python3 -m scripts.run_defect_deduplicator "defects_result.json" --print-duplicates
+python3 -m scripts.run_defect_deduplicator "defects_result.json" --out-dir "artifacts/dedup"
+```
+
+**Вход:** JSON результат defect_extractor (defects_*.json)
+**Артефакты:** JSON с добавленными полями row_number и duplicates
+
 ## Использование в коде
 
 ### Предпроцессинг
@@ -133,11 +146,24 @@ for defect in result.defects:
 json_path = await save_extraction_result(result, result_dir="artifacts/defects")
 ```
 
+### Defect Deduplicator
+
+```python
+from services.defect_deduplicator import deduplicate_defects, save_dedup_result
+
+dedup_result = deduplicate_defects(extraction_result)  # из Defect Extractor
+print(f"Всего: {dedup_result.total_defects}, уникальных: {dedup_result.unique_defects}")
+for defect in dedup_result.defects:
+    if defect.has_duplicates:
+        print(f"Строка {defect.row_number}: дубликаты {defect.duplicates_str}")
+json_path = await save_dedup_result(dedup_result, result_dir="artifacts/dedup")
+```
+
 ## Настройки
 
 Все параметры в `config.py`:
 - Предпроцессинг: `PDF_RENDER_DPI`, `PDF_PREPROCESS_NORMALIZE`
 - OCR: `TESSERACT_LANG`, `TESSERACT_OEM`, `TESSERACT_PSM`, `OCR_PAGE_CONCURRENCY`
 - Flowise: `FLOWISE_API_URL_*`, `FLOWISE_BATCH_SIZE`, `FLOWISE_TIMEOUT_SECONDS`
-- VLM: `FLOWISE_API_URL_VLM_CLEAN`, `VLM_RENDER_DPI`, `VLM_IMAGE_TARGET_*`, `VLM_TIMEOUT_SECONDS`
+- VLM: `FLOWISE_API_URL_VLM_CLEAN`, `VLM_RENDER_DPI`, `VLM_IMAGE_MAX_*`, `VLM_PAGE_CONCURRENCY`, `VLM_TIMEOUT_SECONDS`
 - Defect Extractor: `FLOWISE_API_URL_DEFECT_EXTRACT`, `DEFECT_EXTRACTION_CONCURRENCY`, `DEFECT_EXTRACTION_CONTEXT_CHARS`

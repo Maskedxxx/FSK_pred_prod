@@ -88,11 +88,11 @@ FLOWISE_MAX_CHARS_PER_PAGE = 15000
 FLOWISE_API_URL_VLM_CLEAN = "https://app.osmi-it.ru/api/v1/prediction/0916e84d-0957-4230-b23d-7c1c162278c5"
 
 # DPI рендера страниц для VLM (ниже чем OCR — экономия токенов, но достаточно для vision)
-VLM_RENDER_DPI = 250
+VLM_RENDER_DPI = 400
 
-# Целевой размер изображения (letterbox). Страница масштабируется с сохранением пропорций.
-VLM_IMAGE_TARGET_WIDTH = 1024
-VLM_IMAGE_TARGET_HEIGHT = 1024
+# Максимальный размер изображения. Страница масштабируется с сохранением пропорций (без letterbox).
+VLM_IMAGE_MAX_WIDTH = 1536
+VLM_IMAGE_MAX_HEIGHT = 1536
 
 # Качество JPEG при кодировании в base64 (0-100)
 VLM_IMAGE_JPEG_QUALITY = 85
@@ -103,6 +103,9 @@ VLM_RETRY_BASE_DELAY_SECONDS = 2
 
 # Таймаут HTTP запроса к Flowise VLM (секунды)
 VLM_TIMEOUT_SECONDS = 240
+
+# Сколько страниц VLM обрабатывать параллельно (ограничение одновременных запросов)
+VLM_PAGE_CONCURRENCY = 3
 
 # -----------------------------
 # Defect Extractor (Flowise LLM)

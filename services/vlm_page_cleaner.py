@@ -28,12 +28,13 @@ from config import (
     logger,
     FLOWISE_API_URL_VLM_CLEAN,
     VLM_RENDER_DPI,
-    VLM_IMAGE_TARGET_WIDTH,
-    VLM_IMAGE_TARGET_HEIGHT,
+    VLM_IMAGE_MAX_WIDTH,
+    VLM_IMAGE_MAX_HEIGHT,
     VLM_IMAGE_JPEG_QUALITY,
     VLM_MAX_RETRIES,
     VLM_RETRY_BASE_DELAY_SECONDS,
     VLM_TIMEOUT_SECONDS,
+    VLM_PAGE_CONCURRENCY,
 )
 
 
@@ -43,8 +44,15 @@ from config import (
 
 VLM_CLEAN_PROMPT = (
     "Это страница технического отчёта о дефектах ремонта помещений. "
-    "Извлеки и приведи текст в аккуратную СТРУКТУРУ, сохранив порядок, "
-    "пункты, нумерацию, ЗАГОЛОВКИ/ПОДЗАГОЛОВКИ если таковые имются "
+    "Извлеки ВЕСЬ текст страницы ПОЛНОСТЬЮ — от первых начальных до последнего символа.\n\n"
+    "КРИТИЧЕСКИ ВАЖНО: Страница не всегда начинается с загаловка, если текст в начале страницы начинается НЕ с заголовка "
+    "(продолжение с предыдущей страницы, обрезанное предложение) — "
+    "помести этот переходящий текст в блок цитаты Markdown (символ > в начале каждой строки), "
+    "а затем продолжай основной текст. ПОМЕСТИТЕ ТЕКСТ НАЧАЛА СТРАНИЦЫ ЕСЛИ ОН НЕ ОТНОСИТЬСЯ К ЗАГАЛОВКУ в > <raw_text> Пример:\n"
+    "> ...<помещение было загружено>...\n\n"
+    "То же самое правило и к конечному тексту если он обрезан в конце страницы.\n\n"
+    "Приведи текст в аккуратную СТРУКТУРУ, сохранив порядок, "
+    "пункты, нумерацию, ЗАГОЛОВКИ/ПОДЗАГОЛОВКИ если таковые имеются "
     "и каждую техническую деталь. "
     "Сохраняй структуру, как на изображении: если видишь заголовок/подзаголовок — выделяй его, "
     "если видишь таблицу — оформи в Markdown-таблицу.\n\n"
@@ -93,19 +101,14 @@ class VLMCleaningResult(BaseModel):
 
 
 def _preprocess_page_image(image: Image.Image) -> Image.Image:
-    """Приводит изображение к единому размеру (letterbox) и RGB."""
+    """Масштабирует изображение с сохранением пропорций (без letterbox)."""
     img = image.convert("RGB")
-    target_w, target_h = VLM_IMAGE_TARGET_WIDTH, VLM_IMAGE_TARGET_HEIGHT
+    max_w, max_h = VLM_IMAGE_MAX_WIDTH, VLM_IMAGE_MAX_HEIGHT
 
-    # Масштабируем с сохранением пропорций
-    img.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+    # Масштабируем с сохранением пропорций (без добавления белых полей)
+    img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
 
-    # Создаём белый холст и центрируем изображение
-    canvas = Image.new("RGB", (target_w, target_h), color=(255, 255, 255))
-    left = (target_w - img.width) // 2
-    top = (target_h - img.height) // 2
-    canvas.paste(img, (left, top))
-    return canvas
+    return img
 
 
 def _encode_image_base64(image: Image.Image) -> tuple[str, str]:
@@ -142,8 +145,8 @@ def _convert_pdf_page_to_base64(pdf_path: Path, page_number: int) -> tuple[str, 
     logger.debug(
         "Страница %s → base64 (%dx%d, dpi=%d)",
         page_number,
-        VLM_IMAGE_TARGET_WIDTH,
-        VLM_IMAGE_TARGET_HEIGHT,
+        processed.width,
+        processed.height,
         VLM_RENDER_DPI,
     )
     return mime_type, image_base64
@@ -294,44 +297,24 @@ async def _call_flowise_vlm(
 # =============================================================================
 
 
-async def clean_relevant_pages(
-    pdf_path: str | Path,
-    page_numbers: list[int],
-    raw_text_by_page: dict[int, str] | None = None,
-) -> VLMCleaningResult:
-    """Обрабатывает список страниц PDF через Flowise VLM.
+async def _process_single_page(
+    pdf_path: Path,
+    page_num: int,
+    raw_text_by_page: dict[int, str],
+    semaphore: asyncio.Semaphore,
+) -> CleanedPageData:
+    """Обрабатывает одну страницу с ограничением concurrency.
 
     Args:
         pdf_path: Путь к PDF файлу
-        page_numbers: Список номеров страниц для обработки (1-based)
-        raw_text_by_page: Опциональный fallback — сырой OCR текст по номерам страниц.
-                          Используется если VLM не смог обработать страницу.
+        page_num: Номер страницы (1-based)
+        raw_text_by_page: Fallback OCR текст по номерам страниц
+        semaphore: Семафор для ограничения параллельных запросов
 
     Returns:
-        VLMCleaningResult с очищенными страницами
+        CleanedPageData с результатом обработки
     """
-    pdf_path = Path(pdf_path).expanduser().resolve()
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF не найден: {pdf_path}")
-
-    if not page_numbers:
-        raise ValueError("Не переданы номера страниц для VLM обработки")
-
-    # Убираем дубликаты и сортируем
-    ordered_pages = sorted(set(page_numbers))
-
-    logger.info(
-        "VLM обработка: %d страниц из %s → %s",
-        len(ordered_pages),
-        pdf_path.name,
-        ordered_pages,
-    )
-
-    start_time = time.perf_counter()
-    cleaned_pages: list[CleanedPageData] = []
-    raw_text_by_page = raw_text_by_page or {}
-
-    for page_num in ordered_pages:
+    async with semaphore:
         cleaned_text = ""
 
         try:
@@ -354,9 +337,59 @@ async def clean_relevant_pages(
                 e,
             )
 
-        cleaned_pages.append(
-            CleanedPageData(page_number=page_num, cleaned_text=cleaned_text)
-        )
+        return CleanedPageData(page_number=page_num, cleaned_text=cleaned_text)
+
+
+async def clean_relevant_pages(
+    pdf_path: str | Path,
+    page_numbers: list[int],
+    raw_text_by_page: dict[int, str] | None = None,
+) -> VLMCleaningResult:
+    """Обрабатывает список страниц PDF через Flowise VLM (параллельно).
+
+    Args:
+        pdf_path: Путь к PDF файлу
+        page_numbers: Список номеров страниц для обработки (1-based)
+        raw_text_by_page: Опциональный fallback — сырой OCR текст по номерам страниц.
+                          Используется если VLM не смог обработать страницу.
+
+    Returns:
+        VLMCleaningResult с очищенными страницами
+    """
+    pdf_path = Path(pdf_path).expanduser().resolve()
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF не найден: {pdf_path}")
+
+    if not page_numbers:
+        raise ValueError("Не переданы номера страниц для VLM обработки")
+
+    # Убираем дубликаты и сортируем
+    ordered_pages = sorted(set(page_numbers))
+    raw_text_by_page = raw_text_by_page or {}
+
+    logger.info(
+        "VLM обработка: %d страниц из %s → %s (concurrency=%d)",
+        len(ordered_pages),
+        pdf_path.name,
+        ordered_pages,
+        VLM_PAGE_CONCURRENCY,
+    )
+
+    start_time = time.perf_counter()
+
+    # Семафор для ограничения параллельных запросов
+    semaphore = asyncio.Semaphore(VLM_PAGE_CONCURRENCY)
+
+    # Запускаем все страницы параллельно (с ограничением через семафор)
+    tasks = [
+        _process_single_page(pdf_path, page_num, raw_text_by_page, semaphore)
+        for page_num in ordered_pages
+    ]
+
+    results = await asyncio.gather(*tasks)
+
+    # Сортируем результаты по номеру страницы (на случай если порядок сбился)
+    cleaned_pages = sorted(results, key=lambda p: p.page_number)
 
     elapsed = time.perf_counter() - start_time
 
@@ -368,7 +401,7 @@ async def clean_relevant_pages(
     )
 
     logger.info(
-        "VLM обработка завершена: %d страниц за %.2f сек",
+        "VLM обработка завершена: %d страниц за %.2f сек (параллельно)",
         len(cleaned_pages),
         elapsed,
     )
