@@ -47,6 +47,19 @@ python3 -m scripts.run_flowise_page_filter "ocr_result.txt" --batch-size 5
 **Вход:** OCR .txt файл (формат: `=== Страница N ===`)
 **Артефакты:** JSON с диапазоном релевантных страниц `[start_page, end_page]`
 
+### 4. VLM Page Cleaner (Vision)
+
+Очищает и структурирует релевантные страницы через Flowise Vision API. Конвертирует страницы в изображения, отправляет в VLM, возвращает Markdown.
+
+```bash
+python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5-10
+python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5,6,7,8 --print-text
+python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5-10 --ocr-txt "ocr_result.txt"
+```
+
+**Вход:** PDF файл + номера страниц (из Page Filter)
+**Артефакты:** JSON (структурированный результат), TXT (очищенный Markdown)
+
 ## Использование в коде
 
 ### Предпроцессинг
@@ -81,9 +94,24 @@ print(f"Диапазон: {result.start_page} - {result.end_page}")
 save_filter_result(result, result_dir="artifacts")
 ```
 
+### VLM Page Cleaner
+
+```python
+from services.vlm_page_cleaner import clean_relevant_pages, save_vlm_result
+
+result = await clean_relevant_pages(
+    pdf_path="document.pdf",
+    page_numbers=[5, 6, 7, 8],  # из filter_relevant_pages
+    raw_text_by_page={5: "...", 6: "..."}  # fallback из OCR
+)
+json_path, txt_path = await save_vlm_result(result, result_dir="artifacts/vlm")
+print(result.get_all_text())
+```
+
 ## Настройки
 
 Все параметры в `config.py`:
 - Предпроцессинг: `PDF_RENDER_DPI`, `PDF_PREPROCESS_NORMALIZE`
 - OCR: `TESSERACT_LANG`, `TESSERACT_OEM`, `TESSERACT_PSM`, `OCR_PAGE_CONCURRENCY`
 - Flowise: `FLOWISE_API_URL_*`, `FLOWISE_BATCH_SIZE`, `FLOWISE_TIMEOUT_SECONDS`
+- VLM: `FLOWISE_API_URL_VLM_CLEAN`, `VLM_RENDER_DPI`, `VLM_IMAGE_TARGET_*`, `VLM_TIMEOUT_SECONDS`

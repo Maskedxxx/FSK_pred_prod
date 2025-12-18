@@ -80,3 +80,26 @@ FLOWISE_TIMEOUT_SECONDS = 300
 
 # Максимум символов текста страницы в промпте (обрезка для экономии токенов)
 FLOWISE_MAX_CHARS_PER_PAGE = 15000
+
+# -----------------------------
+# VLM Page Cleaner (Flowise Vision)
+# -----------------------------
+# API URL для VLM очистки страниц (подставьте свой endpoint)
+FLOWISE_API_URL_VLM_CLEAN = "https://app.osmi-it.ru/api/v1/prediction/0916e84d-0957-4230-b23d-7c1c162278c5"
+
+# DPI рендера страниц для VLM (ниже чем OCR — экономия токенов, но достаточно для vision)
+VLM_RENDER_DPI = 250
+
+# Целевой размер изображения (letterbox). Страница масштабируется с сохранением пропорций.
+VLM_IMAGE_TARGET_WIDTH = 1024
+VLM_IMAGE_TARGET_HEIGHT = 1024
+
+# Качество JPEG при кодировании в base64 (0-100)
+VLM_IMAGE_JPEG_QUALITY = 85
+
+# Retry настройки для VLM запросов
+VLM_MAX_RETRIES = 3
+VLM_RETRY_BASE_DELAY_SECONDS = 2
+
+# Таймаут HTTP запроса к Flowise VLM (секунды)
+VLM_TIMEOUT_SECONDS = 240

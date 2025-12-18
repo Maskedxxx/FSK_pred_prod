@@ -2,3 +2,5 @@ pdf2image
 opencv-python
 pydantic
 requests
+httpx
+Pillow
