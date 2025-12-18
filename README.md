@@ -1,6 +1,6 @@
 # FSK_pred_prod
 
-Пайплайн обработки PDF: предпроцессинг страниц, OCR через tesseract, фильтрация релевантных страниц через LLM.
+Пайплайн обработки PDF технических отчётов: предпроцессинг, OCR, фильтрация релевантных страниц, VLM очистка, извлечение дефектов.
 
 ## Установка
 
@@ -60,6 +60,19 @@ python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5-10 --ocr-txt "o
 **Вход:** PDF файл + номера страниц (из Page Filter)
 **Артефакты:** JSON (структурированный результат), TXT (очищенный Markdown)
 
+### 5. Defect Extractor (LLM)
+
+Извлекает структурированный список дефектов из VLM-очищенных страниц через Flowise LLM. Постраничная обработка с контекстом соседних страниц.
+
+```bash
+python3 -m scripts.run_defect_extractor "vlm_result.json"
+python3 -m scripts.run_defect_extractor "vlm_result.json" --print-defects
+python3 -m scripts.run_defect_extractor "vlm_result.json" --out-dir "artifacts/defects"
+```
+
+**Вход:** VLM JSON результат (vlm_result_*.json)
+**Артефакты:** JSON со списком дефектов (source_text, room, location, defect, work_type)
+
 ## Использование в коде
 
 ### Предпроцессинг
@@ -108,6 +121,18 @@ json_path, txt_path = await save_vlm_result(result, result_dir="artifacts/vlm")
 print(result.get_all_text())
 ```
 
+### Defect Extractor
+
+```python
+from services.defect_extractor import extract_defects, save_extraction_result
+
+result = await extract_defects(vlm_result)  # из VLM Page Cleaner
+print(f"Найдено дефектов: {result.total_defects}")
+for defect in result.defects:
+    print(f"{defect.room} / {defect.location}: {defect.defect}")
+json_path = await save_extraction_result(result, result_dir="artifacts/defects")
+```
+
 ## Настройки
 
 Все параметры в `config.py`:
@@ -115,3 +140,4 @@ print(result.get_all_text())
 - OCR: `TESSERACT_LANG`, `TESSERACT_OEM`, `TESSERACT_PSM`, `OCR_PAGE_CONCURRENCY`
 - Flowise: `FLOWISE_API_URL_*`, `FLOWISE_BATCH_SIZE`, `FLOWISE_TIMEOUT_SECONDS`
 - VLM: `FLOWISE_API_URL_VLM_CLEAN`, `VLM_RENDER_DPI`, `VLM_IMAGE_TARGET_*`, `VLM_TIMEOUT_SECONDS`
+- Defect Extractor: `FLOWISE_API_URL_DEFECT_EXTRACT`, `DEFECT_EXTRACTION_CONCURRENCY`, `DEFECT_EXTRACTION_CONTEXT_CHARS`

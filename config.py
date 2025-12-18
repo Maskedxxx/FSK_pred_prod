@@ -103,3 +103,22 @@ VLM_RETRY_BASE_DELAY_SECONDS = 2
 
 # Таймаут HTTP запроса к Flowise VLM (секунды)
 VLM_TIMEOUT_SECONDS = 240
+
+# -----------------------------
+# Defect Extractor (Flowise LLM)
+# -----------------------------
+# API URL для извлечения дефектов (подставьте свой endpoint)
+FLOWISE_API_URL_DEFECT_EXTRACT = "https://app.osmi-it.ru/api/v1/prediction/69eecc47-ab48-4f48-90a1-049d3e374f8a"
+
+# Сколько страниц обрабатывать параллельно
+DEFECT_EXTRACTION_CONCURRENCY = 3
+
+# Сколько символов брать из соседних страниц для контекста (prev/next)
+DEFECT_EXTRACTION_CONTEXT_CHARS = 1500
+
+# Таймаут HTTP запроса (секунды)
+DEFECT_EXTRACTION_TIMEOUT_SECONDS = 180
+
+# Retry настройки
+DEFECT_EXTRACTION_MAX_RETRIES = 3
+DEFECT_EXTRACTION_RETRY_DELAY_SECONDS = 2
