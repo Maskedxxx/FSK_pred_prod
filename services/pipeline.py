@@ -29,6 +29,7 @@ import aiohttp
 from config import logger
 from services.ocr_service import process_pdf_ocr, save_ocr_result, OCRResult
 from services.flowise_page_filter import filter_relevant_pages, PageFilterResult
+from utils.pii_masker import mask_pii_in_document, DocumentMaskingResult
 from services.vlm_page_cleaner import clean_relevant_pages, save_vlm_result, VLMCleaningResult
 from services.defect_extractor import extract_defects, save_extraction_result, DefectExtractionResult
 from services.defect_deduplicator import deduplicate_defects, save_dedup_result, DeduplicationResult
@@ -67,6 +68,20 @@ class OCRMetadata:
     json_path: Path
     txt_path: Path
     duration: float
+
+
+@dataclass
+class PIIMaskingMetadata:
+    """Метаданные маскирования персональных данных."""
+
+    pages_with_pii: list[int]
+    total_pii_count: int
+    pii_by_type: dict[str, int]
+    duration: float
+
+    @property
+    def has_pii(self) -> bool:
+        return len(self.pages_with_pii) > 0
 
 
 @dataclass
@@ -132,6 +147,7 @@ class PipelineResult:
     # Метаданные шагов
     download: DownloadMetadata | None = None
     ocr: OCRMetadata | None = None
+    pii_masking: PIIMaskingMetadata | None = None
     filter: FilterMetadata | None = None
     vlm: VLMMetadata | None = None
     extraction: ExtractionMetadata | None = None
@@ -217,6 +233,7 @@ class DefectAnalysisPipeline:
         self._file_id: str | None = None
         self._pdf_path: Path | None = None
         self._ocr_result: OCRResult | None = None
+        self._pii_masking_result: DocumentMaskingResult | None = None
         self._filter_result: PageFilterResult | None = None
         self._vlm_result: VLMCleaningResult | None = None
         self._extraction_result: DefectExtractionResult | None = None
@@ -225,6 +242,7 @@ class DefectAnalysisPipeline:
         # Метаданные
         self._download_meta: DownloadMetadata | None = None
         self._ocr_meta: OCRMetadata | None = None
+        self._pii_meta: PIIMaskingMetadata | None = None
         self._filter_meta: FilterMetadata | None = None
         self._vlm_meta: VLMMetadata | None = None
         self._extraction_meta: ExtractionMetadata | None = None
@@ -358,6 +376,65 @@ class DefectAnalysisPipeline:
             meta.total_pages,
             duration,
         )
+        return meta
+
+    # -------------------------------------------------------------------------
+    # Шаг 2.5: Маскирование персональных данных
+    # -------------------------------------------------------------------------
+
+    async def run_pii_masking(self) -> PIIMaskingMetadata:
+        """Маскирует персональные данные в тексте OCR.
+
+        Проходит по всем страницам и заменяет телефоны, email, ИНН и т.д.
+        на плейсхолдеры вида [ТЕЛЕФОН], [EMAIL].
+        """
+        logger.info("=" * 60)
+        logger.info("ШАГ 2.5: МАСКИРОВАНИЕ ПЕРСОНАЛЬНЫХ ДАННЫХ")
+        logger.info("=" * 60)
+
+        if not self._ocr_result:
+            raise PipelineError("OCR не выполнен. Сначала выполните run_ocr().")
+
+        start = time.perf_counter()
+
+        # Собираем страницы для маскирования
+        pages = [
+            (page.page_number, page.full_text)
+            for page in self._ocr_result.document.pages
+        ]
+
+        # Маскируем PII
+        masked_pages, masking_result = mask_pii_in_document(pages)
+
+        # Обновляем текст страниц в OCR результате
+        masked_text_by_page = dict(masked_pages)
+        for page in self._ocr_result.document.pages:
+            if page.page_number in masked_text_by_page:
+                # Pydantic модель — используем __dict__ для изменения
+                page.__dict__["full_text"] = masked_text_by_page[page.page_number]
+
+        duration = time.perf_counter() - start
+
+        self._pii_masking_result = masking_result
+
+        meta = PIIMaskingMetadata(
+            pages_with_pii=masking_result.pages_with_pii,
+            total_pii_count=masking_result.total_pii_count,
+            pii_by_type=masking_result.pii_by_type,
+            duration=duration,
+        )
+        self._pii_meta = meta
+
+        if masking_result.has_pii:
+            logger.info(
+                "PII замаскировано: %d на страницах %s за %.2f с",
+                masking_result.total_pii_count,
+                masking_result.pages_with_pii,
+                duration,
+            )
+        else:
+            logger.info("PII не обнаружено (%.2f с)", duration)
+
         return meta
 
     # -------------------------------------------------------------------------
@@ -590,6 +667,7 @@ class DefectAnalysisPipeline:
         try:
             await self.download_document()
             await self.run_ocr()
+            await self.run_pii_masking()
             await self.run_page_filter()
 
             # Проверяем что есть релевантные страницы
@@ -619,6 +697,7 @@ class DefectAnalysisPipeline:
             total_duration=total_duration,
             download=self._download_meta,
             ocr=self._ocr_meta,
+            pii_masking=self._pii_meta,
             filter=self._filter_meta,
             vlm=self._vlm_meta,
             extraction=self._extraction_meta,

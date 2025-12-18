@@ -27,6 +27,16 @@ from services.pipeline import (
 # Вспомогательные функции
 # =============================================================================
 
+# Маппинг типов PII на русские названия для отображения в Telegram
+PII_TYPE_NAMES: dict[str, str] = {
+    "phone": "тел",
+    "email": "email",
+    "inn": "ИНН",
+    "snils": "СНИЛС",
+    "passport": "паспорт",
+    "bank_card": "карта",
+}
+
 
 def is_google_drive_link(message: types.Message) -> bool:
     """Проверяет, содержит ли сообщение ссылку Google Drive.
@@ -118,6 +128,30 @@ async def handle_google_drive_link(message: types.Message) -> None:
                 duration=ocr_meta.duration,
             ),
         )
+
+        # === ШАГ 1.5: Маскирование персональных данных ===
+        await _send_status(message, Messages.STEP_PII_START)
+
+        pii_meta = await pipeline.run_pii_masking()
+
+        if pii_meta.has_pii:
+            # Форматируем типы PII для отображения (с русскими названиями)
+            pii_types_str = ", ".join(
+                f"{PII_TYPE_NAMES.get(k, k)}: {v}"
+                for k, v in sorted(pii_meta.pii_by_type.items())
+            )
+            # Форматируем список страниц без квадратных скобок
+            pages_str = ", ".join(str(p) for p in pii_meta.pages_with_pii)
+            await _send_status(
+                message,
+                Messages.STEP_PII_DONE_MASKED.format(
+                    pages=pages_str,
+                    count=pii_meta.total_pii_count,
+                    types=pii_types_str,
+                ),
+            )
+        else:
+            await _send_status(message, Messages.STEP_PII_DONE_CLEAN)
 
         # === ШАГ 2: Фильтрация релевантных страниц ===
         await _send_status(message, Messages.STEP_FILTER_START)
