@@ -86,6 +86,19 @@ python3 -m scripts.run_defect_deduplicator "defects_result.json" --out-dir "arti
 **Вход:** JSON результат defect_extractor (defects_*.json)
 **Артефакты:** JSON с добавленными полями row_number и duplicates
 
+### 7. Excel Generator
+
+Генерирует форматированный Excel отчёт по дефектам с подсветкой дубликатов.
+
+```bash
+python3 -m scripts.run_excel_generator "dedup_result.json"
+python3 -m scripts.run_excel_generator "dedup_result.json" --output "report.xlsx"
+python3 -m scripts.run_excel_generator "dedup_result.json" --out-dir "artifacts/excel"
+```
+
+**Вход:** JSON результат defect_deduplicator (dedup_*.json)
+**Артефакты:** Excel файл с колонками: №, Страница, Помещение, Локализация, Тип дефекта, Тип работы, Описание, Дубликаты
+
 ## Использование в коде
 
 ### Предпроцессинг
@@ -157,6 +170,15 @@ for defect in dedup_result.defects:
     if defect.has_duplicates:
         print(f"Строка {defect.row_number}: дубликаты {defect.duplicates_str}")
 json_path = await save_dedup_result(dedup_result, result_dir="artifacts/dedup")
+```
+
+### Excel Generator
+
+```python
+from services.excel_generator import generate_excel_report
+
+excel_path = generate_excel_report(dedup_result)  # из Defect Deduplicator
+print(f"Excel сохранён: {excel_path}")
 ```
 
 ## Настройки
