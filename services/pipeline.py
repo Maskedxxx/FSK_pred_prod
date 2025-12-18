@@ -184,7 +184,7 @@ def _safe_filename(filename: str, default: str) -> str:
     return sanitized or f"{default}.pdf"
 
 
-def _format_size(size_bytes: int) -> str:
+def format_size(size_bytes: int) -> str:
     """Возвращает размер файла в человекочитаемом формате."""
     if size_bytes < 1024:
         return f"{size_bytes} Б"
@@ -240,6 +240,10 @@ class DefectAnalysisPipeline:
         pipeline_dir = Path("result") / timestamp
         pipeline_dir.mkdir(parents=True, exist_ok=True)
         return pipeline_dir
+
+    def total_duration(self) -> float:
+        """Возвращает общее время выполнения пайплайна в секундах."""
+        return time.perf_counter() - self.started_at
 
     # -------------------------------------------------------------------------
     # Шаг 1: Скачивание PDF
@@ -314,7 +318,7 @@ class DefectAnalysisPipeline:
         logger.info(
             "PDF скачан: %s (%s) за %.2f с",
             local_filename,
-            _format_size(size_bytes),
+            format_size(size_bytes),
             duration,
         )
         return meta

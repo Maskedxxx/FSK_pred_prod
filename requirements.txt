@@ -6,3 +6,5 @@ httpx
 aiohttp
 Pillow
 openpyxl
+aiogram>=3.0
+python-dotenv
