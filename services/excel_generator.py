@@ -18,6 +18,7 @@ from openpyxl.utils import get_column_letter
 
 from config import logger
 from services.defect_deduplicator import DeduplicationResult
+from utils.defect_catalog import get_defect_name_ru
 
 
 # =============================================================================
@@ -133,7 +134,7 @@ def generate_excel_report(
             defect.page_number,
             defect.room,
             defect.location,
-            defect.defect,
+            get_defect_name_ru(defect.defect),  # Русское название из справочника
             defect.work_type,
             defect.source_text,
             defect.duplicates_str,
