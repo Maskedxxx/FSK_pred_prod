@@ -8,3 +8,4 @@ Pillow
 openpyxl
 aiogram>=3.0
 python-dotenv
+natasha>=1.6.0

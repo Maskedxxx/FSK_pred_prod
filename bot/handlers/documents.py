@@ -29,6 +29,7 @@ from services.pipeline import (
 
 # Маппинг типов PII на русские названия для отображения в Telegram
 PII_TYPE_NAMES: dict[str, str] = {
+    "name": "ФИО",
     "phone": "тел",
     "email": "email",
     "inn": "ИНН",
@@ -36,6 +37,45 @@ PII_TYPE_NAMES: dict[str, str] = {
     "passport": "паспорт",
     "bank_card": "карта",
 }
+
+# Максимум страниц для детального отображения в боте
+MAX_PII_PAGES_TO_SHOW = 1000
+
+
+def _format_pii_page_details(
+    pii_by_page: dict[int, dict[str, int]],
+) -> str:
+    """Форматирует детализацию PII по страницам для Telegram.
+
+    Args:
+        pii_by_page: Словарь {номер_страницы: {тип_pii: количество}}
+
+    Returns:
+        Отформатированная строка для отображения
+    """
+    if not pii_by_page:
+        return ""
+
+    lines = []
+    pages_sorted = sorted(pii_by_page.keys())
+
+    # Показываем первые N страниц
+    pages_to_show = pages_sorted[:MAX_PII_PAGES_TO_SHOW]
+    remaining = len(pages_sorted) - len(pages_to_show)
+
+    for page_num in pages_to_show:
+        type_counts = pii_by_page[page_num]
+        # Форматируем типы для этой страницы
+        types_str = ", ".join(
+            f"{PII_TYPE_NAMES.get(t, t)}: {c}"
+            for t, c in sorted(type_counts.items())
+        )
+        lines.append(f"  стр. {page_num}: {types_str}")
+
+    if remaining > 0:
+        lines.append(f"  ... и ещё {remaining} стр.")
+
+    return "\n".join(lines)
 
 
 def is_google_drive_link(message: types.Message) -> bool:
@@ -135,19 +175,19 @@ async def handle_google_drive_link(message: types.Message) -> None:
         pii_meta = await pipeline.run_pii_masking()
 
         if pii_meta.has_pii:
-            # Форматируем типы PII для отображения (с русскими названиями)
+            # Форматируем общую статистику по типам
             pii_types_str = ", ".join(
                 f"{PII_TYPE_NAMES.get(k, k)}: {v}"
                 for k, v in sorted(pii_meta.pii_by_type.items())
             )
-            # Форматируем список страниц без квадратных скобок
-            pages_str = ", ".join(str(p) for p in pii_meta.pages_with_pii)
+            # Форматируем детализацию по страницам
+            details_str = _format_pii_page_details(pii_meta.pii_by_page)
             await _send_status(
                 message,
                 Messages.STEP_PII_DONE_MASKED.format(
-                    pages=pages_str,
                     count=pii_meta.total_pii_count,
                     types=pii_types_str,
+                    details=details_str,
                 ),
             )
         else:

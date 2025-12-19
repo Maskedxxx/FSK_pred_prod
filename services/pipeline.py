@@ -77,6 +77,7 @@ class PIIMaskingMetadata:
     pages_with_pii: list[int]
     total_pii_count: int
     pii_by_type: dict[str, int]
+    pii_by_page: dict[int, dict[str, int]]  # {page_num: {pii_type: count}}
     duration: float
 
     @property
@@ -417,10 +418,20 @@ class DefectAnalysisPipeline:
 
         self._pii_masking_result = masking_result
 
+        # Собираем детализацию по страницам: {page_num: {pii_type: count}}
+        pii_by_page: dict[int, dict[str, int]] = {}
+        for page_result in masking_result.page_results:
+            if page_result.has_pii:
+                type_counts: dict[str, int] = {}
+                for match in page_result.matches:
+                    type_counts[match.pii_type] = type_counts.get(match.pii_type, 0) + 1
+                pii_by_page[page_result.page_number] = type_counts
+
         meta = PIIMaskingMetadata(
             pages_with_pii=masking_result.pages_with_pii,
             total_pii_count=masking_result.total_pii_count,
             pii_by_type=masking_result.pii_by_type,
+            pii_by_page=pii_by_page,
             duration=duration,
         )
         self._pii_meta = meta

@@ -3,6 +3,10 @@
 Проходит по тексту регулярными выражениями и заменяет
 персональные данные на плейсхолдеры вида [ТЕЛЕФОН], [EMAIL] и т.д.
 
+Для распознавания ФИО используется библиотека Natasha:
+- NER модель для поиска спанов с типом PER
+- NamesExtractor для валидации (разбор на first/last/middle)
+
 Публичный API:
     - mask_pii_in_text() — маскирование текста одной страницы
     - mask_pii_in_document() — маскирование всего документа (OCR результат)
@@ -17,9 +21,213 @@ from typing import NamedTuple
 
 from config import logger
 
+# Natasha NER для распознавания ФИО (lazy loading)
+try:
+    from natasha import (
+        Segmenter,
+        NewsEmbedding,
+        NewsNERTagger,
+        MorphVocab,
+        NamesExtractor,
+        Doc,
+    )
+    NATASHA_AVAILABLE = True
+except ImportError:
+    NATASHA_AVAILABLE = False
+    logger.warning("Natasha не установлена — распознавание ФИО отключено")
+
 
 # =============================================================================
-# Паттерны персональных данных
+# Natasha NER + NamesExtractor (lazy initialization)
+# =============================================================================
+
+class _NatashaModels:
+    """Lazy-loaded Natasha модели для NER и валидации имён.
+
+    Использует двухуровневую систему:
+    1. NER (NewsNERTagger) — находит спаны с типом PER
+    2. NamesExtractor — валидирует, что спан действительно ФИО
+       (может разобрать на first/last/middle)
+    """
+
+    _instance: "_NatashaModels | None" = None
+    _initialized: bool = False
+
+    def __new__(cls) -> "_NatashaModels":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def _ensure_initialized(self) -> None:
+        """Инициализирует модели при первом использовании."""
+        if self._initialized or not NATASHA_AVAILABLE:
+            return
+
+        logger.info("Инициализация Natasha NER + NamesExtractor...")
+
+        # Базовые компоненты
+        self.segmenter = Segmenter()
+        self.morph_vocab = MorphVocab()
+        self.emb = NewsEmbedding()
+
+        # NER для поиска PER спанов
+        self.ner_tagger = NewsNERTagger(self.emb)
+
+        # NamesExtractor для валидации имён (использует словари 190k+ слов)
+        self.names_extractor = NamesExtractor(self.morph_vocab)
+
+        self._initialized = True
+        logger.info("Natasha готова к работе (NER + NamesExtractor)")
+
+    def _is_valid_name(self, text: str) -> bool:
+        """Проверяет, является ли текст реальным ФИО через NamesExtractor.
+
+        NamesExtractor использует словари Natasha (7k имён, 182k фамилий)
+        и грамматические правила для разбора текста на структуру:
+        - first (имя)
+        - last (фамилия)
+        - middle (отчество)
+
+        Если разбор успешен (есть хотя бы first или last) — это реальное ФИО.
+
+        Args:
+            text: Текст для проверки
+
+        Returns:
+            True если текст распознан как ФИО
+        """
+        if not text or not text.strip():
+            return False
+
+        try:
+            # Пытаемся разобрать текст как имя
+            match = self.names_extractor.find(text)
+
+            if match and match.fact:
+                # Проверяем что есть хотя бы имя или фамилия
+                fact = match.fact
+                has_first = getattr(fact, 'first', None) is not None
+                has_last = getattr(fact, 'last', None) is not None
+                return has_first or has_last
+
+            return False
+
+        except Exception:
+            return False
+
+    def extract_validated_names(self, text: str) -> list[tuple[int, int, str]]:
+        """Извлекает и валидирует ФИО из текста.
+
+        Двухэтапный процесс:
+        1. NER находит все спаны с типом PER
+        2. NamesExtractor валидирует каждый спан
+
+        Args:
+            text: Исходный текст
+
+        Returns:
+            Список кортежей (start, stop, text) только для валидных имён
+        """
+        if not NATASHA_AVAILABLE:
+            return []
+
+        self._ensure_initialized()
+
+        try:
+            # Шаг 1: NER находит PER спаны
+            doc = Doc(text)
+            doc.segment(self.segmenter)
+            doc.tag_ner(self.ner_tagger)
+
+            validated_names = []
+
+            for span in doc.spans:
+                if span.type != "PER":
+                    continue
+
+                # Шаг 2: Исключаем OCR-мусор
+                span_text = span.text
+
+                # Слишком короткие (типа "Е.", "А.")
+                clean_text = span_text.strip().rstrip(".")
+                if len(clean_text) < 3:
+                    continue
+
+                # Многострочные строки (OCR-артефакты)
+                if "\n" in span_text:
+                    continue
+
+                # Спецсимволы (OCR-мусор типа "Е |", "Ми [Ире")
+                if any(c in span_text for c in "|[]{}"):
+                    continue
+
+                # Смесь кириллицы и латиницы (кроме точек и пробелов)
+                has_cyrillic = any("а" <= c.lower() <= "я" or c in "ёЁ" for c in span_text)
+                has_latin = any("a" <= c.lower() <= "z" for c in span_text)
+                if has_cyrillic and has_latin:
+                    continue
+
+                # Шаг 3: Исключаем строительные термины
+                if _contains_construction_term(span.text):
+                    continue
+
+                # Шаг 4: Валидация через NamesExtractor
+                if self._is_valid_name(span.text):
+                    validated_names.append((span.start, span.stop, span.text))
+
+            return validated_names
+
+        except Exception as e:
+            logger.warning("Ошибка Natasha NER: %s", e)
+            return []
+
+
+# Глобальный singleton для моделей
+_natasha = _NatashaModels()
+
+
+# =============================================================================
+# Строительные термины (исключаются из ФИО)
+# =============================================================================
+
+# Слова, которые NER может ошибочно принять за имена в строительных документах
+# "Пол" = Paul, "Ламинат" может походить на фамилию и т.д.
+_CONSTRUCTION_TERMS: set[str] = {
+    # Локации дефектов
+    "Пол", "Потолок", "Стена", "Стены", "Полы", "Потолки",
+    "Откос", "Откосы", "Порог", "Пороги",
+    # Двери и окна
+    "Дверь", "Двери", "Окно", "Окна", "Балкон", "Лоджия",
+    "Оконный", "Дверной", "Балконный",
+    # Материалы (могут быть приняты за фамилии)
+    "Ламинат", "Плитка", "Паркет", "Линолеум", "Кафель",
+    "Обои", "Штукатурка", "Шпаклёвка", "Шпаклевка",
+    "Гипсокартон", "Бетон", "Кирпич", "Стяжка",
+    # Комнаты
+    "Кухня", "Комната", "Коридор", "Прихожая", "Санузел",
+    "Ванная", "Туалет", "Спальня", "Гостиная", "Зал",
+    # Элементы отделки
+    "Плинтус", "Плинтуса", "Наличник", "Наличники",
+    "Подоконник", "Карниз", "Розетка", "Выключатель",
+    # Инженерные системы
+    "Радиатор", "Батарея", "Вентиляция", "Кондиционер",
+    "Счётчик", "Счетчик", "Смеситель", "Унитаз", "Раковина",
+}
+
+
+def _contains_construction_term(text: str) -> bool:
+    """Проверяет, содержит ли текст строительные термины."""
+    words = text.split()
+    for word in words:
+        # Проверяем слово без знаков препинания
+        clean_word = word.strip(".,;:!?()[]\"'")
+        if clean_word in _CONSTRUCTION_TERMS:
+            return True
+    return False
+
+
+# =============================================================================
+# Паттерны персональных данных (regex)
 # =============================================================================
 
 
@@ -151,8 +359,45 @@ class DocumentMaskingResult:
 # =============================================================================
 
 
+def _mask_names_with_ner(text: str, matches: list[PIIMatch]) -> str:
+    """Маскирует ФИО с помощью Natasha NER + NamesExtractor.
+
+    Двухэтапная валидация:
+    1. NER находит спаны с типом PER
+    2. NamesExtractor проверяет по словарям (190k+ слов)
+
+    Args:
+        text: Исходный текст
+        matches: Список для добавления найденных совпадений
+
+    Returns:
+        Текст с замаскированными именами
+    """
+    validated_names = _natasha.extract_validated_names(text)
+
+    if not validated_names:
+        return text
+
+    # Сортируем по позиции в обратном порядке, чтобы замена не сбивала индексы
+    names_sorted = sorted(validated_names, key=lambda x: x[0], reverse=True)
+
+    masked_text = text
+    for start, stop, name_text in names_sorted:
+        matches.append(PIIMatch(
+            pii_type="name",
+            original=name_text,
+            position=start,
+        ))
+        masked_text = masked_text[:start] + "[ФИО]" + masked_text[stop:]
+
+    return masked_text
+
+
 def mask_pii_in_text(text: str, page_number: int = 0) -> PageMaskingResult:
     """Маскирует персональные данные в тексте.
+
+    Использует Natasha NER + NamesExtractor для распознавания ФИО
+    и regex для остальных типов PII.
 
     Args:
         text: Исходный текст
@@ -168,9 +413,12 @@ def mask_pii_in_text(text: str, page_number: int = 0) -> PageMaskingResult:
             masked_text=text,
         )
 
-    masked_text = text
     matches: list[PIIMatch] = []
 
+    # Шаг 1: Маскируем ФИО с помощью NER + NamesExtractor
+    masked_text = _mask_names_with_ner(text, matches)
+
+    # Шаг 2: Маскируем остальные PII с помощью regex
     for pii_pattern in PII_PATTERNS:
         regex = re.compile(pii_pattern.pattern, re.IGNORECASE)
 
