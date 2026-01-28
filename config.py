@@ -24,7 +24,7 @@ logger = logging.getLogger("FSK_pred_prod")
 # PDF -> images (рендер страниц)
 # -----------------------------
 # DPI рендера PDF в изображения. Чем выше — тем лучше OCR, но тем больше время/память.
-PDF_RENDER_DPI = 300
+PDF_RENDER_DPI = 200
 
 # Формат рендера страниц на диск. Для скорости обычно достаточно jpeg.
 PDF_RENDER_FORMAT = "jpeg"  # "jpeg" | "png"

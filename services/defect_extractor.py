@@ -85,9 +85,26 @@ source_text - source excerpt for the defect (verbatim):
 - Do NOT paraphrase and do NOT shorten aggressively
 
 room - room type where defect was found:
-- Use the exact room name from the document (headers like "Кухня", "Лоджия", etc.)
-- IMPORTANT: do not downgrade "Кухня/Лоджия/..." to "Комната" if the room is explicitly known.
+- Use ONLY values from ROOM REFERENCE LIST below
+- Rooms may be numbered in document: "Комната 1", "Комната 2", "Санузел 1", etc. — preserve the number
+- IMPORTANT: do not downgrade "Кухня/Лоджия/..." to "Комната" if the room is explicitly known
 - If not specified in the text: use "Комната"
+
+ROOM REFERENCE LIST (use exact values, add number if present in document):
+- Кухня
+- Коридор
+- Прихожая
+- Ванная
+- Санузел
+- Туалет
+- Жилая комната / Комната 1 / Комната 2 / etc.
+- Спальня
+- Гостиная
+- Лоджия
+- Балкон
+- Кладовая
+- Гардеробная
+- Комната (если тип не определён)
 
 location - defect localization according to expertise section:
 - "Пол", "Потолок", "Стена", "Межкомнатная дверь", "Входная дверь", "Оконный блок", "Откосы"
