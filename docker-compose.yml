@@ -32,10 +32,17 @@ services:
     env_file:
       - .env
 
-    # Дополнительные переменные окружения (опционально)
+    # Дополнительные переменные окружения
     environment:
       - PYTHONPATH=/app
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # OCR Worker (внешний сервис на хосте)
+      - OCR_WORKER_URL=${OCR_WORKER_URL:-http://host.docker.internal:8765}
+      - OCR_WORKER_TIMEOUT_SECONDS=${OCR_WORKER_TIMEOUT_SECONDS:-600}
+
+    # Доступ к хосту из контейнера (для OCR Worker)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     # Монтируем volume для временных файлов пайплайна
     # (опционально - для сохранения артефактов между перезапусками)

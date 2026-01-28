@@ -1,0 +1,20 @@
+# OCR Worker dependencies
+# Устанавливать в отдельный venv на хосте
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# PDF processing
+pdf2image>=1.16.0
+
+# Image processing
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Data validation
+pydantic>=2.0.0
+
+# HTTP client (для тестов)
+httpx>=0.25.0
+python-multipart>=0.0.6

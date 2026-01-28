@@ -49,12 +49,11 @@ RUN pip install --user -r requirements.txt
 FROM base AS runtime
 
 # Устанавливаем runtime системные зависимости
+# Примечание: tesseract убран из Docker — OCR выполняется через OCR Worker на хосте
+# (настраивается через OCR_MODE=remote в .env)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # pdf2image требует poppler-utils для конвертации PDF в изображения
+    # pdf2image требует poppler-utils для конвертации PDF в изображения (нужен для VLM)
     poppler-utils \
-    # OCR: tesseract + русский язык
-    tesseract-ocr \
-    tesseract-ocr-rus \
     # opencv-python требует эти библиотеки
     libgl1 \
     libglib2.0-0 \

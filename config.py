@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 # Обязательная инициализация логирования вынесена в util, но настройки — тут (config = truth).
 from utils.logging_utils import setup_console_logging
@@ -40,30 +41,6 @@ PDF_PREPROCESS_NORMALIZE = True
 
 # Формат сохранения предобработанных страниц
 PDF_PREPROCESS_OUTPUT_FORMAT = "png"  # удобнее для дальнейшего OCR
-
-# -----------------------------
-# OCR (tesseract)
-# -----------------------------
-# Языки tesseract. Обычно для наших документов достаточно rus+eng.
-TESSERACT_LANG = "rus+eng"
-
-# OCR Engine Mode (oem) и Page Segmentation Mode (psm) — параметры tesseract.
-TESSERACT_OEM = 3
-TESSERACT_PSM = 6
-
-# Сохранять интервалы между словами (иногда улучшает читаемость табличного/форматного текста).
-TESSERACT_PRESERVE_INTERWORD_SPACES = 1
-
-# Таймаут на распознавание одной страницы (сек). Нужен, чтобы сервис не зависал на "тяжёлых" страницах.
-TESSERACT_PAGE_TIMEOUT_SECONDS = 300
-
-# Сколько страниц OCR обрабатывать параллельно (ограничение по одновременным tesseract-процессам).
-# 3–4 обычно даёт хороший баланс скорости/нагрузки.
-OCR_PAGE_CONCURRENCY = 4
-
-# Оставлять ли временную папку предпроцессинга (workdir) после OCR.
-# Для отладки можно включить True и смотреть изображения. В проде обычно False.
-OCR_KEEP_PREPROCESS_WORKDIR = False
 
 # -----------------------------
 # Flowise Page Filter (фильтрация релевантных страниц через LLM)
@@ -125,3 +102,13 @@ DEFECT_EXTRACTION_TIMEOUT_SECONDS = 180
 # Retry настройки
 DEFECT_EXTRACTION_MAX_RETRIES = 3
 DEFECT_EXTRACTION_RETRY_DELAY_SECONDS = 2
+
+# -----------------------------
+# OCR Worker (внешний сервис на хосте)
+# -----------------------------
+# URL OCR Worker — FastAPI сервис с tesseract, запущенный на хосте
+# host.docker.internal — специальный адрес для доступа к хосту из Docker
+OCR_WORKER_URL = os.getenv("OCR_WORKER_URL", "http://host.docker.internal:8765")
+
+# Таймаут запроса к OCR Worker (секунды)
+OCR_WORKER_TIMEOUT_SECONDS = int(os.getenv("OCR_WORKER_TIMEOUT_SECONDS", "600"))

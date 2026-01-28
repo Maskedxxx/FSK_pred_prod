@@ -1,273 +1,158 @@
-# FSK_pred_prod
+# FSK Defect Bot
 
-Пайплайн обработки PDF технических отчётов: предпроцессинг, OCR, фильтрация релевантных страниц, VLM очистка, извлечение дефектов.
+Telegram бот для анализа дефектов в технических отчётах (PDF).
+
+## Что делает
+
+1. Принимает PDF через Telegram (ссылка Google Drive или файл)
+2. OCR — распознаёт текст (Tesseract)
+3. Фильтрует релевантные страницы (LLM)
+4. Очищает страницы через Vision LLM
+5. Извлекает список дефектов (LLM)
+6. Генерирует Excel отчёт
+
+## Архитектура
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Docker контейнер                                           │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Telegram Bot (aiogram)                              │   │
+│  │  └─► Pipeline: OCR → Filter → VLM → Extract → Excel │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                           │                                 │
+│                           │ HTTP (OCR запросы)              │
+└───────────────────────────│─────────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Хост (вне Docker)                                          │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  OCR Worker (FastAPI + Tesseract)                    │   │
+│  │  http://localhost:8765                               │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+OCR вынесен на хост потому что Tesseract в Docker работает в 10x медленнее.
+
+## Структура проекта
+
+```
+├── bot/                    # Telegram бот
+│   ├── main.py            # Точка входа
+│   └── handlers/          # Обработчики сообщений
+├── services/              # Бизнес-логика
+│   ├── ocr_service.py     # OCR (клиент к OCR Worker)
+│   ├── pipeline.py        # Полный пайплайн
+│   └── ...
+├── ocr_worker/            # OCR сервис (FastAPI)
+│   ├── main.py            # Endpoints /health, /ocr
+│   ├── processor.py       # Tesseract + предобработка
+│   └── config.py          # Настройки OCR
+├── config.py              # Главный конфиг
+├── docker-compose.yml     # Docker конфигурация
+├── Dockerfile
+├── start.sh               # Скрипт запуска
+└── .env.example           # Пример переменных окружения
+```
+
+## Требования
+
+- Python 3.11+
+- Docker + Docker Compose
+- Tesseract OCR (на хосте)
+- Poppler (на хосте, для pdf2image)
 
 ## Установка
 
-```bash
-pip install -r requirements.txt
-brew install poppler tesseract tesseract-lang  # macOS
-```
-
-## Быстрый старт (полный пайплайн)
-
-Запуск полного пайплайна из ссылки Google Drive:
+### 1. Клонировать репозиторий
 
 ```bash
-python3 -m scripts.run_pipeline "https://drive.google.com/file/d/xxx/view"
+git clone <repo-url>
+cd FSK_pred_prod
 ```
 
-Пайплайн выполняет 7 шагов:
-1. **Download** — скачивание PDF из Google Drive
-2. **OCR** — распознавание текста (Tesseract)
-3. **Filter** — поиск релевантных страниц с дефектами (FSM)
-4. **VLM** — очистка страниц через Vision LLM
-5. **Extract** — извлечение дефектов через LLM
-6. **Dedup** — пометка дубликатов
-7. **Excel** — генерация отчёта
+### 2. Системные зависимости
 
-Все артефакты сохраняются в `result/YYYYMMDD_HHMMSS/`.
-
-## Сервисы
-
-### 1. Предпроцессинг PDF
-
-Рендерит PDF в изображения с предобработкой (grayscale, нормализация контраста).
+**macOS:**
 
 ```bash
-python3 -m scripts.run_pdf_preprocess "файл.pdf"
-python3 -m scripts.run_pdf_preprocess "файл.pdf" --max-pages 2
-python3 -m scripts.run_pdf_preprocess "файл.pdf" --cleanup
+brew install tesseract tesseract-lang poppler
 ```
 
-**Артефакты:** `/var/folders/.../fsk_pdf_preprocess_xxxxx/` с подпапками `rendered/`, `preprocessed/`
-
-### 2. OCR (Tesseract)
-
-Выполняет OCR с использованием предпроцессинга. Сохраняет JSON и TXT артефакты.
+**Ubuntu/Debian:**
 
 ```bash
-python3 -m scripts.run_pdf_ocr "файл.pdf" --out-dir "artifacts/ocr"
-python3 -m scripts.run_pdf_ocr "файл.pdf" --max-pages 2 --print-text
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr tesseract-ocr-rus poppler-utils python3-venv
 ```
 
-**Артефакты:** JSON (структурированный результат), TXT (полный текст документа)
-
-### 3. Flowise Page Filter (FSM)
-
-Фильтрует релевантные страницы через Flowise LLM. FSM с двумя фазами: поиск начала и конца списка дефектов.
+### 3. Python окружение для OCR Worker
 
 ```bash
-python3 -m scripts.run_flowise_page_filter "ocr_result.txt" --out-dir "artifacts/filter"
-python3 -m scripts.run_flowise_page_filter "ocr_result.txt" --max-pages 50
-python3 -m scripts.run_flowise_page_filter "ocr_result.txt" --batch-size 5
+# Создать venv
+python3 -m venv ocr_worker_venv
+
+# Активировать
+source ocr_worker_venv/bin/activate  # Linux/macOS
+
+# Установить зависимости
+pip install -r ocr_worker/requirements.txt
+
+# Деактивировать (опционально)
+deactivate
 ```
 
-**Вход:** OCR .txt файл (формат: `=== Страница N ===`)
-**Артефакты:** JSON с диапазоном релевантных страниц `[start_page, end_page]`
+> Примечание: `start.sh` создаёт venv автоматически, если его нет.
 
-### 4. VLM Page Cleaner (Vision)
-
-Очищает и структурирует релевантные страницы через Flowise Vision API. Конвертирует страницы в изображения, отправляет в VLM, возвращает Markdown.
+### 4. Настройка переменных окружения
 
 ```bash
-python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5-10
-python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5,6,7,8 --print-text
-python3 -m scripts.run_vlm_page_cleaner "файл.pdf" --pages 5-10 --ocr-txt "ocr_result.txt"
+# Скопировать пример
+cp .env.example .env
+
+# Заполнить BOT_TOKEN (получить у @BotFather в Telegram)
+nano .env
 ```
 
-**Вход:** PDF файл + номера страниц (из Page Filter)
-**Артефакты:** JSON (структурированный результат), TXT (очищенный Markdown)
+## Запуск
 
-### 5. Defect Extractor (LLM)
-
-Извлекает структурированный список дефектов из VLM-очищенных страниц через Flowise LLM. Постраничная обработка с контекстом соседних страниц.
+### Через скрипт (рекомендуется)
 
 ```bash
-python3 -m scripts.run_defect_extractor "vlm_result.json"
-python3 -m scripts.run_defect_extractor "vlm_result.json" --print-defects
-python3 -m scripts.run_defect_extractor "vlm_result.json" --out-dir "artifacts/defects"
+# Запустить всё (OCR Worker + Docker бот)
+./start.sh
+
+# Проверить статус
+./start.sh status
+
+# Остановить
+./start.sh stop
 ```
 
-**Вход:** VLM JSON результат (vlm_result_*.json)
-**Артефакты:** JSON со списком дефектов (source_text, room, location, defect, work_type)
-
-### 6. Defect Deduplicator
-
-Помечает дубликаты дефектов по ключам (room, location, defect). Не удаляет дубли, а добавляет колонку с номерами строк-дубликатов для Excel.
+### Другие команды
 
 ```bash
-python3 -m scripts.run_defect_deduplicator "defects_result.json"
-python3 -m scripts.run_defect_deduplicator "defects_result.json" --print-duplicates
-python3 -m scripts.run_defect_deduplicator "defects_result.json" --out-dir "artifacts/dedup"
-```
-
-**Вход:** JSON результат defect_extractor (defects_*.json)
-**Артефакты:** JSON с добавленными полями row_number и duplicates
-
-### 7. Excel Generator
-
-Генерирует форматированный Excel отчёт по дефектам с подсветкой дубликатов.
-
-```bash
-python3 -m scripts.run_excel_generator "dedup_result.json"
-python3 -m scripts.run_excel_generator "dedup_result.json" --output "report.xlsx"
-python3 -m scripts.run_excel_generator "dedup_result.json" --out-dir "artifacts/excel"
-```
-
-**Вход:** JSON результат defect_deduplicator (dedup_*.json)
-**Артефакты:** Excel файл с колонками: №, Страница, Помещение, Локализация, Тип дефекта, Тип работы, Описание, Дубликаты
-
-## Использование в коде
-
-### Предпроцессинг
-
-```python
-from services.pdf_preprocessor import preprocess_pdf_to_images
-
-result = preprocess_pdf_to_images("document.pdf")
-for page in result.pages:
-    print(f"Страница {page.page_number}: {page.preprocessed_path}")
-result.cleanup()
-```
-
-### OCR
-
-```python
-from services.ocr_service import process_pdf_ocr, save_ocr_result
-
-result = await process_pdf_ocr("document.pdf")
-json_path, txt_path = await save_ocr_result(result, result_dir="artifacts")
-print(result.document.get_all_text())
-```
-
-### Flowise Page Filter
-
-```python
-from services.flowise_page_filter import filter_relevant_pages, save_filter_result
-
-result = filter_relevant_pages("ocr_result.txt")
-print(f"Релевантные страницы: {result.relevant_pages}")
-print(f"Диапазон: {result.start_page} - {result.end_page}")
-save_filter_result(result, result_dir="artifacts")
-```
-
-### VLM Page Cleaner
-
-```python
-from services.vlm_page_cleaner import clean_relevant_pages, save_vlm_result
-
-result = await clean_relevant_pages(
-    pdf_path="document.pdf",
-    page_numbers=[5, 6, 7, 8],  # из filter_relevant_pages
-    raw_text_by_page={5: "...", 6: "..."}  # fallback из OCR
-)
-json_path, txt_path = await save_vlm_result(result, result_dir="artifacts/vlm")
-print(result.get_all_text())
-```
-
-### Defect Extractor
-
-```python
-from services.defect_extractor import extract_defects, save_extraction_result
-
-result = await extract_defects(vlm_result)  # из VLM Page Cleaner
-print(f"Найдено дефектов: {result.total_defects}")
-for defect in result.defects:
-    print(f"{defect.room} / {defect.location}: {defect.defect}")
-json_path = await save_extraction_result(result, result_dir="artifacts/defects")
-```
-
-### Defect Deduplicator
-
-```python
-from services.defect_deduplicator import deduplicate_defects, save_dedup_result
-
-dedup_result = deduplicate_defects(extraction_result)  # из Defect Extractor
-print(f"Всего: {dedup_result.total_defects}, уникальных: {dedup_result.unique_defects}")
-for defect in dedup_result.defects:
-    if defect.has_duplicates:
-        print(f"Строка {defect.row_number}: дубликаты {defect.duplicates_str}")
-json_path = await save_dedup_result(dedup_result, result_dir="artifacts/dedup")
-```
-
-### Excel Generator
-
-```python
-from services.excel_generator import generate_excel_report
-
-excel_path = generate_excel_report(dedup_result)  # из Defect Deduplicator
-print(f"Excel сохранён: {excel_path}")
-```
-
-### Полный пайплайн
-
-```python
-from services.pipeline import run_pipeline, DefectAnalysisPipeline
-
-# Вариант 1: простой запуск
-result = await run_pipeline("https://drive.google.com/file/d/xxx/view")
-print(f"Excel: {result.excel_path}")
-print(f"Время: {result.total_duration:.2f}с")
-
-# Вариант 2: пошаговый контроль
-pipeline = DefectAnalysisPipeline(source_url, pipeline_dir=Path("my_results"))
-await pipeline.download_document()
-await pipeline.run_ocr()
-await pipeline.run_page_filter()
-await pipeline.run_vlm_cleaning()
-await pipeline.run_defect_extraction()
-await pipeline.run_deduplication()
-await pipeline.run_excel_generation()
-```
-
-## Telegram бот
-
-Бот предоставляет интерфейс для запуска пайплайна через Telegram.
-
-### Настройка
-
-1. Получите токен бота у [@BotFather](https://t.me/BotFather)
-2. Создайте `.env` файл в корне проекта:
-
-```bash
-BOT_TOKEN=your_telegram_bot_token_here
-```
-
-### Запуск бота
-
-```bash
-python -m bot.main
-```
-
-### Использование
-
-1. `/start` — приветствие и показ клавиатуры
-2. Нажмите **«Загрузить документ»** — получите инструкцию
-3. Отправьте ссылку Google Drive — запустится пайплайн
-
-Бот отправляет статусные сообщения после каждого шага и в конце присылает Excel файл с результатами.
-
-### Структура бота
-
-```
-bot/
-├── main.py           # Точка входа, регистрация хендлеров
-├── config.py         # Конфигурация (токен, сообщения)
-├── handlers/
-│   ├── start.py      # Команда /start
-│   ├── documents.py  # Обработка ссылок и пайплайн
-│   └── common.py     # Fallback обработчик
-└── keyboards/
-    └── main.py       # Reply и Inline клавиатуры
+./start.sh check        # Проверить зависимости
+./start.sh worker       # Только OCR Worker
+./start.sh bot          # Только Docker бот
+./start.sh logs         # Логи Docker
+./start.sh logs-worker  # Логи OCR Worker
+./start.sh help         # Справка
 ```
 
 ## Настройки
 
-Все параметры в `config.py`:
+### Переменные окружения (.env)
 
-- Предпроцессинг: `PDF_RENDER_DPI`, `PDF_PREPROCESS_NORMALIZE`
-- OCR: `TESSERACT_LANG`, `TESSERACT_OEM`, `TESSERACT_PSM`, `OCR_PAGE_CONCURRENCY`
-- Flowise: `FLOWISE_API_URL_*`, `FLOWISE_BATCH_SIZE`, `FLOWISE_TIMEOUT_SECONDS`
-- VLM: `FLOWISE_API_URL_VLM_CLEAN`, `VLM_RENDER_DPI`, `VLM_IMAGE_MAX_*`, `VLM_PAGE_CONCURRENCY`, `VLM_TIMEOUT_SECONDS`
-- Defect Extractor: `FLOWISE_API_URL_DEFECT_EXTRACT`, `DEFECT_EXTRACTION_CONCURRENCY`, `DEFECT_EXTRACTION_CONTEXT_CHARS`
+```bash
+BOT_TOKEN=...                                    # Telegram бот токен (обязательно)
+OCR_WORKER_URL=http://host.docker.internal:8765  # URL OCR Worker
+OCR_WORKER_TIMEOUT_SECONDS=600                   # Таймаут OCR (сек)
+LOG_LEVEL=INFO                                   # Уровень логирования
+```
+
+### Конфигурация
+
+- `config.py` — основные настройки (Flowise URLs, VLM, таймауты)
+- `ocr_worker/config.py` — настройки OCR (Tesseract параметры)
